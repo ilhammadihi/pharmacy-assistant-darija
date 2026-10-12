@@ -182,7 +182,40 @@ Les nouveaux tests couvrent :
 
 ## 8. Résultats de l'évaluation
 
-<!-- RESULTATS -->
+Mesuré sur les **110 phrases** qui ne servent pas d'exemples au modèle (121 moins les 11 exemples de l'invite), avec gpt-oss-20b à température 0. La baseline classique est évaluée sur les mêmes phrases, en validation croisée à 5 plis.
+
+| | v1 — LLM<br>(90 phrases, 7 intentions) | **v2 — LLM**<br>(110 phrases, 8 intentions) | v2 — baseline |
+|---|---|---|---|
+| Intentions — exactitude | 97,8 % | **98,2 %** (108/110) | 62,7 % |
+| Intentions — F1 macro | 97,3 % | **97,9 %** | 53,8 % |
+| Entités — F1 | 98,6 % | **97,6 %** | 95,4 % |
+
+### Par intention (LLM, v2)
+
+| Intention | Correctes |
+|---|---|
+| `disponibilite_medicament` | 37 / 37 |
+| `alternative_moins_chere` | **10 / 10** (nouvelle) |
+| `conseil_medical` | **9 / 9** (nouvelle) |
+| `hors_sujet` | **9 / 9** (nouvelle, pièges compris) |
+| `info_pharmacie` | 12 / 12 |
+| `salutation` | 12 / 12 |
+| `prix_remboursement` | 11 / 12 |
+| `posologie_information` | 8 / 9 |
+
+### Ce que ça montre
+
+- **Les trois nouvelles intentions sont parfaitement reconnues**, y compris les pièges hors sujet qui imitent une question de pharmacie (« wach kayn match lyoum? »).
+- **La fusion a fait disparaître l'erreur qu'elle visait** : « bghit njib juj boites », mal classée en v1, est maintenant correcte, et `disponibilite_medicament` fait 37 sur 37.
+- **Les 2 erreurs restantes** :
+  - « كيفاش ناخد الدواء؟ » (comment je prends le médicament ?), annotée posologie, est classée `conseil_medical`. Sans nom de médicament, les deux lectures se défendent : c'est le nouveau cas limite (voir section 9).
+  - « hal amoxicilline mashmoula bi at-ta'min? » (l'amoxicilline est-elle remboursée ?, en arabe standard translittéré) est classée en disponibilité. Elle était déjà ratée en v1, où elle partait en `autre`.
+- **La légère baisse sur les entités ne vient pas du changement d'intentions.** Seules 3 phrases diffèrent, dont 2 à cause de l'article élidé : le modèle extrait « l'efferalgan » et « l'amoxicilline » au lieu du seul nom. C'était déjà un défaut connu en v1, et l'une des nouvelles phrases le reproduit. La troisième (« sirop dyal la toux », pris pour un nom de médicament) était déjà en v1. La résolution du médicament retrouve quand même le bon produit malgré l'article.
+- **La baseline recule** (67,8 % → 62,7 % sur les intentions) : 8 classes au lieu de 7, avec seulement 9 à 10 exemples pour la plupart, c'est encore plus difficile pour un modèle statistique. L'écart avec le LLM s'agrandit.
+
+### Limites de la comparaison
+
+Les colonnes v1 et v2 ne se comparent pas strictement : le jeu de test a changé (90 → 110 phrases, 7 → 8 intentions, 13 étiquettes modifiées), et sur 110 phrases chaque exemple pèse environ 0,9 point. La conclusion solide est qualitative : **les nouvelles intentions fonctionnent, et la taxonomie v2 n'a pas dégradé la reconnaissance**.
 
 ---
 
@@ -190,6 +223,7 @@ Les nouveaux tests couvrent :
 
 - **Défaut de données CNSS** (découvert en construisant les équivalents) : la liste CNSS découpe les associations de molécules en une ligne par molécule. 1 069 produits sont concernés, soit 2 219 lignes du référentiel. Les équivalents sont protégés par le garde-fou n° 1, mais **les fiches de médicaments peuvent encore afficher une composition incomplète** pour un produit présent uniquement dans la liste CNSS. Correction à faire dans `scripts/clean_merge.py` : regrouper les lignes CNSS par code produit. Elle n'a pas été faite ici, car elle modifie le référentiel et ses chiffres documentés.
 - **Frontière posologie / santé** : sans nom de médicament, une question comme « كيفاش ناخد الدواء؟ » (comment je prends le médicament ?) peut relever des deux. C'est un cas limite à trancher, comme l'était « bghit ».
+- **Article élidé** : le modèle extrait parfois « l'efferalgan » au lieu de « efferalgan » (2 des 3 écarts d'entités). Piste : ajouter une règle dans l'invite, ou retirer « l' » / « d' » avant la résolution — la baseline le fait déjà.
 - **Équivalents limités** : les produits présents uniquement dans la liste CNSS ne sont jamais proposés (composition non fiable), et les associations dont le dosage est écrit différemment entre AMMPS et CNOPS ne sont pas rapprochées. Le système préfère proposer moins d'équivalents plutôt qu'un seul faux.
 - **Le rapport Word (`docs/rapport_DwaTalk.docx`) décrit encore la taxonomie v1** et ses chiffres. Il est à mettre à jour avant un rendu.
 
