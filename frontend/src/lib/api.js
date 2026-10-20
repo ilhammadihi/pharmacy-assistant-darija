@@ -27,9 +27,15 @@ async function appeler(chemin, options) {
   let response
   try {
     response = await fetch(`${API_BASE}${chemin}`, options)
-  } catch {
-    // fetch ne rejette que sur une panne reseau, ce qui ici veut presque
-    // toujours dire que l'API n'est pas lancee : autant le dire franchement.
+  } catch (err) {
+    // une requete annulee (AbortController, souvent le double-montage de
+    // React en StrictMode) rejette aussi ici : son identite doit survivre,
+    // sinon l'appelant qui fait `if (err.name === 'AbortError') return`
+    // (voir Dashboard.jsx, Medicines.jsx) ne la reconnait plus et affiche
+    // une fausse panne a chaque chargement de page.
+    if (err.name === 'AbortError') throw err
+    // les autres pannes reseau veulent presque toujours dire que l'API
+    // n'est pas lancee : autant le dire franchement.
     throw new ApiError(HORS_LIGNE)
   }
   return lire(response)
@@ -49,6 +55,11 @@ export function chercherMedicaments(q, { limit = 12, signal } = {}) {
   return appeler(`/medicaments?${params}`, { signal })
 }
 
+/** Vue d'ensemble des bases (medicaments, pharmacies), pour le tableau de bord. */
+export function obtenirStatistiques({ signal } = {}) {
+  return appeler('/statistiques', { signal })
+}
+
 export function chercherPharmacies({ q, ville, limit = 12, signal } = {}) {
   const params = new URLSearchParams({ limit: String(limit) })
   if (q) params.set('q', q)
@@ -65,4 +76,12 @@ export function transcrire(audio, { langue } = {}) {
   corps.append('fichier', audio, `question.${extension}`)
   if (langue) corps.append('langue', langue)
   return appeler('/transcription', { method: 'POST', body: corps })
+}
+
+/** Photo d'une boite -> OCR + matching (voir nlp/vision/), meme matcher que
+ *  /medicaments. Pas d'en-tete Content-Type, meme raison que `transcrire`. */
+export function reconnaitreBoite(image, { signal } = {}) {
+  const corps = new FormData()
+  corps.append('fichier', image, image.name || 'boite.jpg')
+  return appeler('/reconnaissance', { method: 'POST', body: corps, signal })
 }

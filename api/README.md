@@ -1,4 +1,4 @@
-# API — DwaTalk (Challenge #1)
+# API — DwaTalk (Challenge #1 + #2)
 
 Expose le moteur `nlp/` et les recherches des pages de l'interface.
 
@@ -6,6 +6,8 @@ Expose le moteur `nlp/` et les recherches des pages de l'interface.
 audio ─► Whisper (parole.py) ─┐
                               ├─► nlp/moteur.py (RAG) ─► reponse du LLM + fiches pharmacies
 texte ────────────────────────┘
+
+photo ─► nlp/vision/ (pretraitement + OCR arabe/francais) ─► meme matcher medicaments que /medicaments
 ```
 
 ## Lancer
@@ -24,6 +26,7 @@ Necessite un `.env` a la racine avec `GEMINI_API_KEY=...` (voir le README princi
 | POST | `/chat` | Question texte → reponse |
 | POST | `/transcription` | Audio → texte (Whisper, local) |
 | POST | `/chat/audio` | Audio → transcription → meme traitement que `/chat` |
+| POST | `/reconnaissance` | Photo de boite → OCR → medicament(s) reconnus (Challenge #2) |
 | GET | `/medicaments?q=` | Recherche de medicaments (nom ou molecule, fautes tolerees) |
 | GET | `/pharmacies?ville=&q=&lat=&lon=` | Pharmacies par lieu, par nom, ou autour d'un point |
 | GET | `/pharmacies/garde?ville=&lat=&lon=` | Pharmacies de garde du jour dans une ville (source : Telecontact) ; `connu: false` si le tour de garde n'est pas disponible |
@@ -70,6 +73,22 @@ Chaque resultat porte `latitude`, `longitude`, `precision_gps` (`exacte`, `rue`,
 
 Texte de la notice officielle francaise (BDPM), **mot pour mot** : il decrit la molecule, pas la boite vendue au Maroc. Seule coupe : le paragraphe de declaration a la pharmacovigilance **francaise**. `langue` ajoute un resume (trois phrases au plus, produit par le LLM a partir du seul texte officiel, mis en cache dans `data/clean/securite_resumes.json`). `404` quand la molecule n'est pas couverte (221 le sont).
 
+### `POST /reconnaissance`
+
+Formulaire `multipart/form-data` : `fichier` (JPEG/PNG/WEBP, 10 Mo maximum). Pretraitement OpenCV (contraste, redressement) puis OCR EasyOCR (passe arabe, passe francaise, voir `nlp/vision/`). Chaque ligne de texte lue est comparee **separement** au meme matcher que `GET /medicaments` (`nlp/outils/resolution.reconnaitre_depuis_lignes`) : les joindre en une seule requete noie le nom du medicament dans le reste du texte (dosage, laboratoire…) et fait decrocher le matcher sur un faux candidat — verifie en evaluation (`py scripts/evaluer_reconnaissance.py`), l'accuracy top-1 passe de 40% a 95% sur le dataset synthetique avec cette strategie plutot qu'une requete unique.
+
+```json
+{
+  "reussite": true,
+  "texte_detecte": ["HEVAZ", "600 MG", "COMPRIME PELLICULE", "EFAVIRENZ", "GENPHARMA"],
+  "langues": ["fr"],
+  "resultats": [{"nom_candidat": "HEVAZ", "score": 100.0, "confidence": "auto", "variantes": ["…"]}],
+  "message": "Medicament reconnu : HEVAZ"
+}
+```
+
+`422` si l'image est vide, trop lourde ou illisible. `reussite: false` (statut 200) si aucun texte n'a ete detecte sur la photo ; `resultats: []` si du texte a ete lu mais ne correspond a aucun medicament de la base.
+
 ### `POST /transcription` et `POST /chat/audio`
 
 Formulaire `multipart/form-data` : `fichier` (webm/opus, ogg, mp4, wav…, 60 s et 10 Mo maximum), `langue` (`ar` ou `fr`, facultatif), `session_id` (`/chat/audio`). `/transcription` renvoie `{"texte", "langue", "confiance_langue", "duree_audio", "avertissement"}`. Un audio vide, illisible ou trop long donne une `422`.
@@ -81,3 +100,4 @@ Le front utilise `/transcription` : l'utilisateur relit ce que Whisper a entendu
 - Etat de conversation en memoire (1 000 sessions au plus) : il disparait au redemarrage et ne se partage pas entre plusieurs processus.
 - Pas d'authentification ni de limitation de debit (prototype). Les origines autorisees sont listees (`FRONTEND_ORIGINS`).
 - Whisper tourne sur CPU : ~3 s par question, et le premier appel charge le modele.
+- EasyOCR tourne aussi sur CPU : quelques secondes par photo, et le premier appel telecharge les modeles arabe et francais. La passe arabe est forcee meme sur une boite entierement en francais ; le bruit qu'elle lit parfois est filtre par le seuil de confiance (`nlp/vision/ocr.SEUIL_CONFIANCE`) et par le matcher.

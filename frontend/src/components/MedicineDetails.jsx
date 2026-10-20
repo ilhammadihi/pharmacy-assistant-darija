@@ -33,7 +33,7 @@ export default function MedicineDetails({ resultat }) {
 
   // Phrase de synthese construite uniquement a partir des champs reels.
   const synthese = [
-    `${m.nom} est`,
+    `${m.nom} est `,
     m.dci ? `un medicament a base de ${m.dci}` : 'un medicament',
     m.classe ? `, de la classe therapeutique ${m.classe}` : '',
     m.forme ? `, presente sous forme de ${m.forme.toLowerCase()}` : '',

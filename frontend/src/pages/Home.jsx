@@ -30,6 +30,12 @@ const ACTIONS = [
     texte: 'Decouvrir les pharmacies autour de toi, et celles de garde',
     vers: '/pharmacies',
   },
+  {
+    glyphe: '📷',
+    titre: 'Scanner une boite',
+    texte: 'Photographier une boite pour identifier le medicament',
+    vers: '/scanner',
+  },
 ]
 
 export default function Home() {

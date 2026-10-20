@@ -7,10 +7,12 @@ reponse avec ces fiches seulement (voir nlp/moteur.py).
     POST /chat           une question -> une reponse
     POST /chat/audio     voix -> Whisper (local) -> /chat
     POST /transcription  voix -> texte, pour remplir le champ de saisie
+    POST /reconnaissance photo de boite -> OCR -> /medicaments (Challenge #2)
     GET  /medicaments    recherche pour la page Medicaments
     GET  /pharmacies     recherche pour la page Pharmacies
     GET  /pharmacies/garde   pharmacies de garde du jour dans une ville
     GET  /securite       notice officielle d'une molecule
+    GET  /statistiques   vue d'ensemble des bases, pour le tableau de bord
 
 Lancer :  py -m uvicorn api.main:app --reload --port 8000
 Docs :    http://localhost:8000/docs
@@ -31,8 +33,11 @@ from nlp.linking.pharmacies import chercher_pharmacie, distance_km, fiche
 from nlp.moteur import IndexAbsent, Session, repondre
 from nlp.outils.garde import garde_du_jour
 from nlp.outils.pharmacies import plus_proches, type_ouverture
-from nlp.outils.resolution import matcher
+from nlp.outils.resolution import matcher, reconnaitre_depuis_lignes
+from nlp.outils.statistiques import calculer_statistiques
 from nlp.reponse.langues import LANGUE_PAR_DEFAUT
+from nlp.vision.ocr import extraire_texte
+from nlp.vision.pretraitement import ErreurImage, pretraiter
 
 app = FastAPI(
     title="DwaTalk API",
@@ -90,6 +95,14 @@ class ChatResponse(BaseModel):
 
 class ChatAudioResponse(ChatResponse):
     transcription: TranscriptionResponse
+
+
+class ReconnaissanceResponse(BaseModel):
+    reussite: bool
+    texte_detecte: list[str] = []
+    langues: list[str] = []
+    resultats: list[dict] = []   # meme forme que GET /medicaments
+    message: str
 
 
 def telephone_txt(tel) -> str | None:
@@ -190,6 +203,37 @@ async def chat_audio(
     t = await _transcrire_upload(fichier, langue)
     reponse = await run_in_threadpool(chat, ChatRequest(text=t.texte, session_id=session_id))
     return ChatAudioResponse(**reponse.model_dump(), transcription=t)
+
+
+@app.post("/reconnaissance", response_model=ReconnaissanceResponse)
+async def reconnaissance(fichier: UploadFile = File(..., description="Photo de la boite (JPEG, PNG ou WEBP)")):
+    """Photo de boite -> OCR (arabe + francais) -> meme matcher que GET
+    /medicaments, pour que la boite scannee et la recherche au clavier
+    donnent les memes resultats (Challenge #2)."""
+    contenu = await fichier.read()
+    try:
+        # OCR occupe le CPU plusieurs secondes : hors de la boucle
+        # d'evenements, comme la transcription vocale (_transcrire_upload).
+        image = await run_in_threadpool(pretraiter, contenu)
+        ocr = await run_in_threadpool(extraire_texte, image)
+    except ErreurImage as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    if not ocr["textes"]:
+        return ReconnaissanceResponse(
+            reussite=False,
+            message="Aucun texte detecte sur cette photo. Reessaie avec plus de lumiere, de face, sans flou.",
+        )
+
+    resultats = reconnaitre_depuis_lignes(ocr["textes"], top_k=5)
+    message = (
+        f"Medicament reconnu : {resultats[0]['nom_candidat']}" if resultats
+        else "Aucun medicament reconnu dans nos donnees a partir du texte lu sur la photo."
+    )
+    return ReconnaissanceResponse(
+        reussite=True, texte_detecte=ocr["textes"], langues=ocr["langues"],
+        resultats=resultats, message=message,
+    )
 
 
 def _dci_du_match(match: dict) -> str | None:
@@ -336,3 +380,10 @@ def securite(dci: str, langue: str = LANGUE_PAR_DEFAUT):
     trouve["resume"] = resume.resumer(trouve, langue)
     trouve["resume_langue"] = langue if trouve["resume"] else None
     return trouve
+
+
+@app.get("/statistiques")
+def statistiques():
+    """Vue d'ensemble des bases (medicaments, pharmacies) pour la page
+    Tableau de bord : exploration des donnees, pas evaluation du bot."""
+    return calculer_statistiques()

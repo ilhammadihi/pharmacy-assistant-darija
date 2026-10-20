@@ -3,6 +3,8 @@ export const NAVIGATION = [
   { to: '/', glyphe: '🏠', libelle: 'Accueil', exact: true },
   { to: '/assistant', glyphe: '💬', libelle: 'Assistant' },
   { to: '/medicaments', glyphe: '💊', libelle: 'Medicaments' },
+  { to: '/scanner', glyphe: '📷', libelle: 'Scanner' },
+  { to: '/tableau-de-bord', glyphe: '📊', libelle: 'Tableau de bord' },
   { to: '/pharmacies', glyphe: '📍', libelle: 'Pharmacies' },
   { to: '/historique', glyphe: '🕘', libelle: 'Historique' },
 ]

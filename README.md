@@ -1,6 +1,6 @@
-# DwaTalk — Assistant pharmacie en darija, arabe et français (Challenge #1)
+# DwaTalk — Assistant pharmacie en darija, arabe et français (Challenge #1 + #2)
 
-Assistant conversationnel qui répond aux questions des patients, **à l'écrit ou à la voix**, en darija (graphie latine ou arabe), en arabe standard ou en français, à partir des bases de référence marocaines : prix et remboursement des médicaments, notice officielle, pharmacies proches, conseil pour un symptôme bénin, urgences.
+Assistant conversationnel qui répond aux questions des patients, **à l'écrit, à la voix ou en photo**, en darija (graphie latine ou arabe), en arabe standard ou en français, à partir des bases de référence marocaines : prix et remboursement des médicaments, notice officielle, pharmacies proches, conseil pour un symptôme bénin, urgences, et **reconnaissance d'une boîte à partir d'une photo** (Challenge #2 : OCR arabe/français + matching sur la même base de référence).
 
 ```
 voix ──► Whisper (local) ──┐
@@ -28,6 +28,7 @@ texte ─────────────────────┘    (mot
 | Symptôme courant et bénin | la molécule à demander au pharmacien (liste blanche `data/clean/conseil_symptomes.csv`), sans marque ; enfant, bébé, grossesse, symptôme qui dure → un professionnel |
 | Urgence (surdosage, détresse) | numéros d'urgence seulement : SAMU 141, Protection civile 15, Centre antipoison 0801 000 180 — phrase fixe, détectée par mots-clés même si le LLM est en panne |
 | Tout le reste (stock, générique, livraison, information absente) | « cette information n'existe pas dans nos données » |
+| Photo d'une boîte (`POST /reconnaissance`) | le médicament reconnu (OCR arabe + français, voir `nlp/vision/`), avec les mêmes fiches que la recherche au clavier |
 
 ## Installation
 
@@ -65,6 +66,8 @@ Clé gratuite sur https://aistudio.google.com/apikey. Options, toutes facultativ
 ⚠️ Le palier gratuit de Gemini est limité (une vingtaine de requêtes par jour et par modèle) : chaque message envoyé au bot en consomme **deux**. Pour l'économiser, la réponse à une question qui ouvre une conversation est retenue 24 h et resservie sans appel LLM à qui repose exactement la même (jamais une urgence ni une question de garde) ; ce cache se vide dès que les prompts ou l'index changent. Quand aucun fournisseur ne répond, le bot le dit poliment et rappelle les numéros d'urgence.
 
 La première question posée **à la voix** télécharge le modèle Whisper « small » (~460 Mo, une seule fois). Les suivantes prennent ~3 s sur CPU.
+
+La première photo de boîte envoyée télécharge les modèles EasyOCR (arabe + français, quelques dizaines de Mo chacun). Les suivantes prennent quelques secondes sur CPU.
 
 > Sous Windows, utilise `py` et non `python`, qui ouvre souvent le Microsoft Store.
 
@@ -113,16 +116,37 @@ nlp/                    le moteur
   analyse/urgence.py     filet urgence par mots-cles, avant tout appel LLM
   linking/               medicaments, lieux (villes et quartiers), pharmacies, translitteration
   outils/                pharmacies (lieu, nom), garde.py (tour de garde du jour, Telecontact) ;
-                         prix et notices pour les fiches
+                         resolution.py (matcher partage, reconnaissance depuis l'OCR) ; prix et notices
   reponse/               detection de la langue ; phrases fixes (urgence, service en panne)
   preparation/           scripts lances une fois : fusion des pharmacies, quartiers
+  vision/                Challenge #2 : pretraitement.py (OpenCV), ocr.py (EasyOCR arabe + francais)
 api/                    service FastAPI (main.py), voix (parole.py), resumes des notices, client terminal
 data/                   bases : 19 974 medicaments (AMMPS, CNOPS, CNSS), ~8 000 pharmacies
                         (OpenStreetMap + annuaire), 1 854 quartiers, notices BDPM ;
-                        data/rag/ = fiches et index generes (non suivis par git)
-scripts/                recuperation et nettoyage des sources (deja executes)
+                        data/rag/ et data/vision/ = fiches, index et images generes (non suivis par git)
+scripts/                recuperation et nettoyage des sources (deja executes) ; generation et
+                        evaluation du dataset de boites synthetiques (Challenge #2)
 frontend/               interface React (Vite)
 tests/                  tests automatises (pytest)
+```
+
+## Reconnaissance de boîte (Challenge #2)
+
+```
+photo ──► pretraitement (OpenCV : contraste, redressement) ──► OCR (EasyOCR, passe arabe + passe francaise)
+                                                                        │
+                                            meme matcher que /medicaments, une ligne de texte a la fois
+                                                                        │
+                                                          medicament(s) reconnus, par score
+```
+
+`POST /reconnaissance` (multipart, champ `fichier`) : voir `nlp/vision/pretraitement.py` et `nlp/vision/ocr.py`. Chaque ligne de texte lue sur la boîte est comparée séparément à la base (`nlp/outils/resolution.reconnaitre_depuis_lignes`) : tout joindre en une seule requête noierait le nom du médicament dans le reste du texte (dosage, laboratoire…) et ferait décrocher le matcher sur un faux candidat.
+
+**Dataset et évaluation** — aucune photo de boîte marocaine n'est publiquement disponible au téléchargement (voir `data/vision/README.md` pour le détail) :
+
+```
+py scripts/generer_boites_synthetiques.py --n 300   # mockups generes depuis data/clean/medicaments_reference.csv
+py scripts/evaluer_reconnaissance.py                 # accuracy top-1 / top-5, detail dans evaluation.csv
 ```
 
 ## Limites connues
@@ -135,3 +159,4 @@ tests/                  tests automatises (pytest)
 - **Conseil symptômes** : la liste `conseil_symptomes.csv` doit être relue par un pharmacien avant tout usage réel.
 - **Lieux** : un quartier présent dans plusieurs villes (Agdal, Hay Riad…) fait demander la ville ; un quartier absent d'OpenStreetMap et de l'annuaire n'est pas reconnu.
 - **Historique** : conservé dans le navigateur uniquement ; la mémoire de conversation côté API (derniers messages, ville) est en mémoire vive et disparaît au redémarrage.
+- **Reconnaissance de boîte** : évaluée sur un dataset synthétique (texte rendu, pas de vraie photo), donc l'accuracy mesurée ne dit rien de la robustesse à une vraie étiquette (logo, police, reflet) — voir `data/vision/README.md`. EasyOCR force une passe arabe même sur une boîte entièrement en français, qui lit parfois du bruit (sans conséquence : filtré par le seuil de confiance et par le matcher).

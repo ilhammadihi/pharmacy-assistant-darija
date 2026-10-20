@@ -50,6 +50,24 @@
   --lecture: 760px;
 
   --transition: 180ms cubic-bezier(.4, 0, .2, 1);
+
+  /* --- tableau de bord : palette categorielle (identite, 7 series max),
+     validee (CVD + contraste) avec scripts/validate_palette.js du skill
+     dataviz -- voir frontend/src/pages/Dashboard.jsx */
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+  --viz-5: #e87ba4;
+  --viz-6: #008300;
+  --viz-7: #6250d6;
+
+  /* ordinale (precision GPS, une seule teinte terre cuite, du moins au plus
+     precis) ; "inconnue" est hors echelle, en gris neutre (--encre-pale) */
+  --viz-ordinal-1: #d9846c;
+  --viz-ordinal-2: #c05e45;
+  --viz-ordinal-3: #a94c34;
+  --viz-ordinal-4: #8f3f2a;
 }
 
 * { box-sizing: border-box; }
